@@ -15,7 +15,6 @@ import * as Constant from '../../../common/constant/Constant'
 import { connect } from 'react-redux'
 import { actions } from '../../../redux/module/panel'
 
-let localPeer = null;
 class ChatVideoOline extends React.Component {
     constructor(props) {
         super(props)
@@ -26,22 +25,11 @@ class ChatVideoOline extends React.Component {
     }
 
     componentDidMount() {
-        // const configuration = {
-        //     iceServers: [{
-        //         "url": "stun:23.21.150.121"
-        //     }, {
-        //         "url": "stun:stun.l.google.com:19302"
-        //     }]
-        // };
-        localPeer = new RTCPeerConnection();
-        let peer = {
-            ...this.props.peer,
-            localPeer: localPeer
-        }
-        this.props.setPeer(peer);
-        this.webrtcConnection();
+        // 不再创建独立的localPeer，使用Panel中的全局peer
     }
+
     videoIntervalObj = null;
+
     /**
      * 开启视频电话
      */
@@ -52,6 +40,7 @@ class ChatVideoOline extends React.Component {
         let media = {
             ...this.props.media,
             mediaConnected: false,
+            mediaReject: false,
         }
         this.props.setMedia(media);
         this.setState({
@@ -64,9 +53,10 @@ class ChatVideoOline extends React.Component {
         }
         this.props.sendMessage(data);
         this.videoIntervalObj = setInterval(() => {
-            console.log("video call")
+            console.log("video call interval check")
             // 对方接受视频
             if (this.props.media && this.props.media.mediaConnected) {
+                console.log("Media connected, stopping interval and starting video")
                 this.setMediaState();
                 this.sendVideoData();
                 return;
@@ -74,15 +64,29 @@ class ChatVideoOline extends React.Component {
 
             // 对方拒接
             if (this.props.media && this.props.media.mediaReject) {
+                console.log("Media rejected, stopping interval")
                 this.setMediaState();
                 return;
             }
+
+            // 检查WebSocket连接状态
+            if (!this.props.socket || this.props.socket.readyState !== 1) {
+                console.log("WebSocket not connected, stopping video call");
+                this.setMediaState();
+                return;
+            }
+
+            console.log("Resending video call request")
             this.props.sendMessage(data);
         }, 3000)
     }
 
     setMediaState = () => {
-        this.videoIntervalObj && clearInterval(this.videoIntervalObj);
+        console.log("Clearing video call interval")
+        if (this.videoIntervalObj) {
+            clearInterval(this.videoIntervalObj);
+            this.videoIntervalObj = null;
+        }
         this.setState({
             videoCallModal: false,
         })
@@ -95,21 +99,41 @@ class ChatVideoOline extends React.Component {
     }
 
     sendVideoData = () => {
+        console.log("Starting video data transmission")
         let preview = document.getElementById("localPreviewSender");
+
+        // 使用Panel中的全局peer，而不是创建新的
+        const localPeer = this.props.peer?.localPeer;
+        if (!localPeer) {
+            console.error("No localPeer available");
+            return;
+        }
 
         navigator.mediaDevices
             .getUserMedia({
                 audio: true,
                 video: true,
             }).then((stream) => {
+                console.log("Got user media stream")
                 preview.srcObject = stream;
+
+                // 清除之前的tracks
+                const senders = localPeer.getSenders();
+                senders.forEach(sender => {
+                    if (sender.track) {
+                        localPeer.removeTrack(sender);
+                    }
+                });
+
+                // 添加新的tracks
                 stream.getTracks().forEach(track => {
                     localPeer.addTrack(track, stream);
                 });
 
-                // 一定注意：需要将该动作，放在这里面，即流获取成功后，再进行offer创建。不然不能获取到流，从而不能播放视频。
+                // 创建offer
                 localPeer.createOffer()
                     .then(offer => {
+                        console.log("Created offer", offer)
                         localPeer.setLocalDescription(offer);
                         let data = {
                             contentType: Constant.VIDEO_ONLINE,
@@ -117,7 +141,13 @@ class ChatVideoOline extends React.Component {
                             type: Constant.MESSAGE_TRANS_TYPE,
                         }
                         this.props.sendMessage(data);
+                    })
+                    .catch(error => {
+                        console.error("Error creating offer:", error)
                     });
+            })
+            .catch(error => {
+                console.error("Error getting user media:", error)
             });
 
         this.setState({
@@ -126,46 +156,10 @@ class ChatVideoOline extends React.Component {
     }
 
     /**
-    * webrtc 绑定事件
-    */
-    webrtcConnection = () => {
-
-        /**
-         * 对等方收到ice信息后，通过调用 addIceCandidate 将接收的候选者信息传递给浏览器的ICE代理。
-         * @param {候选人信息} e 
-         */
-        localPeer.onicecandidate = (e) => {
-            if (e.candidate) {
-                // rtcType参数默认是对端值为answer，如果是发起端，会将值设置为offer
-                let candidate = {
-                    type: 'offer_ice',
-                    iceCandidate: e.candidate
-                }
-                let message = {
-                    content: JSON.stringify(candidate),
-                    type: Constant.MESSAGE_TRANS_TYPE,
-                }
-                this.props.sendMessage(message);
-            }
-
-        };
-
-        /**
-         * 当连接成功后，从里面获取语音视频流
-         * @param {包含语音视频流} e 
-         */
-        localPeer.ontrack = (e) => {
-            if (e && e.streams) {
-                let remoteVideo = document.getElementById("remoteVideoSender");
-                remoteVideo.srcObject = e.streams[0];
-            }
-        };
-    }
-
-    /**
      * 停止视频电话,屏幕共享
      */
     stopVideoOnline = () => {
+        console.log("Stopping video online")
         let preview = document.getElementById("localPreviewSender");
         if (preview && preview.srcObject && preview.srcObject.getTracks()) {
             preview.srcObject.getTracks().forEach((track) => track.stop());
@@ -175,6 +169,18 @@ class ChatVideoOline extends React.Component {
         if (remoteVideo && remoteVideo.srcObject && remoteVideo.srcObject.getTracks()) {
             remoteVideo.srcObject.getTracks().forEach((track) => track.stop());
         }
+
+        // 停止媒体面板
+        this.setState({
+            mediaPanelDrawerVisible: false
+        })
+
+        let media = {
+            ...this.props.media,
+            showMediaPanel: false,
+            mediaConnected: false,
+        }
+        this.props.setMedia(media)
     }
 
     mediaPanelDrawerOnClose = () => {
@@ -184,10 +190,11 @@ class ChatVideoOline extends React.Component {
     }
 
     handleOk = () => {
-
+        // 这个组件的handleOk没有实际作用，主要处理在Panel.jsx中
     }
 
     handleCancel = () => {
+        console.log("Cancelling video call")
         this.setState({
             videoCallModal: false,
         })
@@ -196,7 +203,10 @@ class ChatVideoOline extends React.Component {
             type: Constant.MESSAGE_TRANS_TYPE,
         }
         this.props.sendMessage(data);
-        this.videoIntervalObj && clearInterval(this.videoIntervalObj);
+        if (this.videoIntervalObj) {
+            clearInterval(this.videoIntervalObj);
+            this.videoIntervalObj = null;
+        }
     }
 
     render() {
@@ -208,7 +218,8 @@ class ChatVideoOline extends React.Component {
                         shape="circle"
                         onClick={this.startVideoOnline}
                         style={{ marginRight: 10 }}
-                        icon={<VideoCameraOutlined />} disabled={chooseUser.toUser === ''}
+                        icon={<VideoCameraOutlined />}
+                        disabled={chooseUser.toUser === ''}
                     />
                 </Tooltip>
 

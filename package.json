@@ -3,23 +3,23 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-scripts": "5.0.1",
-    "web-vitals": "^2.1.4",
-
     "antd": "^4.16.13",
     "axios": "^0.24.0",
     "js-audio-recorder": "^1.0.7",
     "protobufjs": "^6.11.2",
-    "socket.io-client": "^4.3.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "react-infinite-scroll-component": "^6.1.0",
     "react-redux": "^7.2.6",
+    "react-router-dom": "^5.3.0",
+    "react-scripts": "5.0.1",
     "redux-thunk": "^2.4.0",
-    "react-router-dom": "^5.3.0"
+    "socket.io-client": "^4.3.2",
+    "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "react-scripts start",
+    "start": "cross-env HTTPS=true SSL_CRT_FILE=\"192.168.110.25+2.pem\" SSL_KEY_FILE=\"192.168.110.25+2-key.pem\" HOST=192.168.110.25 react-scripts start",
+    "dev": "cross-env HTTPS=true SSL_CRT_FILE=\"192.168.110.25+2.pem\" SSL_KEY_FILE=\"192.168.110.25+2-key.pem\" HOST=192.168.110.25 PORT=3000 react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
@@ -42,5 +42,8 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3"
   }
 }

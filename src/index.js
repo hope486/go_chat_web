@@ -9,15 +9,13 @@ import store from './chat/redux/module/index';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
-  <React.StrictMode>
     <Provider store={store}>
-    <BrowserRouter>
-      <Switch>
-        <Route path="/login" component={Login} />
-        <Route path="/panel/:user" component={Panel} />
-        <Route path="/" component={Login} />
-      </Switch>
-    </BrowserRouter>
-  </Provider>,
-  </React.StrictMode>
+        <BrowserRouter>
+            <Switch>
+                <Route path="/login" component={Login} />
+                <Route path="/panel/:user" component={Panel} />
+                <Route path="/" component={Login} />
+            </Switch>
+        </BrowserRouter>
+    </Provider>
 );

@@ -1,7 +1,7 @@
 export const API_VERSION = "/api/v1/";
 
-const PROTOCOL = "http://"
-export const IP_PORT = "localhost:8888";
+const PROTOCOL = "https://"
+export const IP_PORT = "192.168.110.25:8888";
 //local
 export const HOST = PROTOCOL + IP_PORT;
 

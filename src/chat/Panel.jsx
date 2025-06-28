@@ -28,7 +28,7 @@ var peer = null;
 var lockConnection = false;
 
 var heartCheck = {
-    timeout: 10000,
+    timeout: 20000,
     timeoutObj: null,
     serverTimeoutObj: null,
     num: 3,
@@ -97,14 +97,21 @@ class Panel extends React.Component {
     connection = () => {
         console.log("to connect...")
         peer = new RTCPeerConnection();
+
+        // 将peer存储到Redux中，供其他组件使用
+        let peerData = {
+            ...this.props.peer,
+            localPeer: peer
+        }
+        this.props.setPeer(peerData);
+
         var image = document.getElementById('receiver');
-        socket = new WebSocket("ws://" + Params.IP_PORT + "/socket.io?user=" + this.props.match.params.user)
+        socket = new WebSocket("wss://" + Params.IP_PORT + "/socket.io?user=" + this.props.match.params.user)
 
         socket.onopen = () => {
             heartCheck.start()
-            console.log("connected")
+            console.log("WebSocket connected")
             this.webrtcConnection()
-
             this.props.setSocket(socket);
         }
         socket.onmessage = (message) => {
@@ -121,7 +128,7 @@ class Panel extends React.Component {
                     return;
                 }
 
-                // 接受语音电话或者视频电话 webrtc
+                // 接受语音���话或者视频电话 webrtc
                 if (messagePB.type === Constant.MESSAGE_TRANS_TYPE) {
                     this.dealWebRtcMessage(messagePB);
                     return;
@@ -202,13 +209,18 @@ class Panel extends React.Component {
      * webrtc 绑定事件
      */
     webrtcConnection = () => {
+        // 监听连接状态变化
+        peer.onconnectionstatechange = () => {
+            console.log('WebRTC connection state:', peer.connectionState);
+        }
+
         /**
          * 对等方收到ice信息后，通过调用 addIceCandidate 将接收的候选者信息传递给浏览器的ICE代理。
          * @param {候选人信息} e 
          */
         peer.onicecandidate = (e) => {
+            console.log("ICE candidate generated:", e.candidate);
             if (e.candidate) {
-                // rtcType参数默认是对端值为answer，如果是发起端，会将值设置为offer
                 let candidate = {
                     type: 'answer_ice',
                     iceCandidate: e.candidate
@@ -216,10 +228,10 @@ class Panel extends React.Component {
                 let message = {
                     content: JSON.stringify(candidate),
                     type: Constant.MESSAGE_TRANS_TYPE,
+                    toUser: this.state.fromUserUuid, // 确保ICE候选发送给正确的用户
                 }
                 this.sendMessage(message);
             }
-
         };
 
         /**
@@ -227,13 +239,25 @@ class Panel extends React.Component {
          * @param {包含语音视频流} e 
          */
         peer.ontrack = (e) => {
+            console.log("Received remote track:", e);
             if (e && e.streams) {
                 if (this.state.onlineType === 1) {
                     let remoteVideo = document.getElementById("remoteVideoReceiver");
-                    remoteVideo.srcObject = e.streams[0];
+                    if (remoteVideo) {
+                        console.log("Setting remote video stream");
+                        remoteVideo.srcObject = e.streams[0];
+                    }
+                    // 同时在发起方的视频元素中显示
+                    let senderRemoteVideo = document.getElementById("remoteVideoSender");
+                    if (senderRemoteVideo) {
+                        console.log("Setting sender remote video stream");
+                        senderRemoteVideo.srcObject = e.streams[0];
+                    }
                 } else {
                     let remoteAudio = document.getElementById("audioPhone");
-                    remoteAudio.srcObject = e.streams[0];
+                    if (remoteAudio) {
+                        remoteAudio.srcObject = e.streams[0];
+                    }
                 }
             }
         };
@@ -252,9 +276,9 @@ class Panel extends React.Component {
 
         if (type === "answer") {
             const answerSdp = new RTCSessionDescription({ type, sdp });
-            this.props.peer.localPeer.setRemoteDescription(answerSdp)
+            peer.setRemoteDescription(answerSdp)
         } else if (type === "answer_ice") {
-            this.props.peer.localPeer.addIceCandidate(iceCandidate)
+            peer.addIceCandidate(iceCandidate)
         } else if (type === "offer_ice") {
             peer.addIceCandidate(iceCandidate)
         } else if (type === "offer") {
@@ -297,6 +321,7 @@ class Panel extends React.Component {
                                 let message = {
                                     content: JSON.stringify(answer),
                                     type: Constant.MESSAGE_TRANS_TYPE,
+                                    toUser: messagePB.from, // 添加toUser字段，确保消息发送给正确的用户
                                     messageType: messagePB.contentType
                                 }
                                 this.sendMessage(message);
@@ -334,7 +359,7 @@ class Panel extends React.Component {
             navigator.mozGetUserMedia ||
             navigator.msGetUserMedia; //获取媒体对象（这里指摄像头）
         if (!navigator || !navigator.mediaDevices) {
-            message.error("获取摄像头权限失败！")
+            message.error("获取摄像��权限失败！")
             return false;
         }
         return true;
@@ -453,12 +478,15 @@ class Panel extends React.Component {
             contentType: Constant.ACCEPT_VIDEO_ONLINE,
             type: Constant.MESSAGE_TRANS_TYPE,
             toUser: this.state.fromUserUuid,
+            messageType: 1, // 添加消息类型
         }
         this.sendMessage(data);
 
+        // 显示媒体面板
         let media = {
             ...this.props.media,
             showMediaPanel: true,
+            mediaConnected: true, // 添加连接状态
         }
         this.props.setMedia(media)
     }
@@ -467,6 +495,7 @@ class Panel extends React.Component {
         let data = {
             contentType: Constant.REJECT_VIDEO_ONLINE,
             type: Constant.MESSAGE_TRANS_TYPE,
+            toUser: this.state.fromUserUuid, // 添加toUser字段
         }
         this.sendMessage(data);
         this.setState({
@@ -582,6 +611,7 @@ function mapDispatchToProps(dispatch) {
         setMessageList: (data) => dispatch(actions.setMessageList(data)),
         setSocket: (data) => dispatch(actions.setSocket(data)),
         setMedia: (data) => dispatch(actions.setMedia(data)),
+        setPeer: (data) => dispatch(actions.setPeer(data)), // 添加setPeer方法
     }
 }
 
